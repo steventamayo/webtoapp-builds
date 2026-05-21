@@ -1,4 +1,6 @@
-apply plugin: 'com.android.application'
+plugins {
+    id 'com.android.application'
+}
 
 android {
     namespace 'com.webtoapp.template'
@@ -14,9 +16,6 @@ android {
 
     buildTypes {
         debug {
-            minifyEnabled false
-        }
-        release {
             minifyEnabled false
         }
     }
