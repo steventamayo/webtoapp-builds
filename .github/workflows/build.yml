@@ -31,6 +31,14 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle 8.6
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.6'
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version=8.6 --distribution-type=bin
+
       - name: Apply app config
         env:
           INPUT_URL: ${{ github.event.inputs.url }}
@@ -39,58 +47,42 @@ jobs:
           INPUT_ICON: ${{ github.event.inputs.icon_base64 }}
         run: |
           set -e
-          echo "URL: $INPUT_URL"
-          echo "App: $INPUT_APP_NAME"
-          echo "Pkg: $INPUT_PKG"
-
-          # Update app name in strings.xml
-          sed -i "s|__APP_NAME__|${INPUT_APP_NAME}|g" app/src/main/res/values/strings.xml
-
-          # Update URL in MainActivity.java
-          sed -i "s|__WEBVIEW_URL__|${INPUT_URL}|g" app/src/main/java/com/webtoapp/template/MainActivity.java
-
-          # Update package name
-          OLD_PKG="com.webtoapp.template"
           NEW_PKG="$INPUT_PKG"
 
-          sed -i "s|${OLD_PKG}|${NEW_PKG}|g" app/src/main/AndroidManifest.xml
-          sed -i "s|${OLD_PKG}|${NEW_PKG}|g" app/build.gradle
+          # Update app name
+          sed -i "s|__APP_NAME__|$INPUT_APP_NAME|g" app/src/main/res/values/strings.xml
 
-          # Move MainActivity to correct package path
+          # Update WebView URL in template file
+          sed -i "s|__WEBVIEW_URL__|$INPUT_URL|g" app/src/main/java/com/webtoapp/template/MainActivity.java
+
+          # Replace package name in app/build.gradle
+          sed -i "s|com.webtoapp.template|$NEW_PKG|g" app/build.gradle
+
+          # Move MainActivity to new package path and update package declaration
           NEW_PATH="app/src/main/java/$(echo $NEW_PKG | tr '.' '/')"
           mkdir -p "$NEW_PATH"
-          cp app/src/main/java/com/webtoapp/template/MainActivity.java "$NEW_PATH/MainActivity.java"
+          mv app/src/main/java/com/webtoapp/template/MainActivity.java "$NEW_PATH/MainActivity.java"
           sed -i "s|package com.webtoapp.template|package $NEW_PKG|g" "$NEW_PATH/MainActivity.java"
 
-          # Handle icon (strip data URI prefix if present)
+          # Apply custom icon if provided
           if [ -n "$INPUT_ICON" ]; then
-            ICON_DATA="$INPUT_ICON"
-            # Remove data URI prefix if present
-            ICON_DATA="$(echo $ICON_DATA | sed 's|data:image/[^;]*;base64,||')"
-            echo "$ICON_DATA" | base64 -d > /tmp/icon_raw.png 2>/dev/null && \
-            if [ -f /tmp/icon_raw.png ] && [ -s /tmp/icon_raw.png ]; then
-              echo "Icon decoded successfully"
-              for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-                mkdir -p "app/src/main/res/mipmap-$density"
-                cp /tmp/icon_raw.png "app/src/main/res/mipmap-$density/ic_launcher.png"
-                cp /tmp/icon_raw.png "app/src/main/res/mipmap-$density/ic_launcher_round.png"
+            ICON_DATA="$(echo $INPUT_ICON | sed 's|data:image/[^;]*;base64,||')"
+            printf '%s' "$ICON_DATA" | base64 -d > /tmp/icon.png 2>/dev/null
+            if [ -s /tmp/icon.png ]; then
+              for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+                mkdir -p "app/src/main/res/mipmap-$d"
+                cp /tmp/icon.png "app/src/main/res/mipmap-$d/ic_launcher.png"
+                cp /tmp/icon.png "app/src/main/res/mipmap-$d/ic_launcher_round.png"
               done
-            else
-              echo "Could not decode icon, using default"
             fi
           fi
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.6'
-
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
+          retention-days: 30
